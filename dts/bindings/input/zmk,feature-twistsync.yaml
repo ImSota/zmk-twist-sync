@@ -4,7 +4,7 @@ compatible: "zmk,feature-twistsync"
 properties:
   "#input-processor-cells":
     type: int
-    const: 3
+    const: 2
   param1:
     type: int
   param2:
