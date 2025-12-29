@@ -1,12 +1,12 @@
 description: Twist synchronization input processor
 compatible: "zmk,feature-twistsync"
 
-include: [input_processor.yaml]
+include: [ip_two_param.yaml]
 
 properties:
-  "#input-processor-cells":
-    type: int
-    const: 2
+  # "#input-processor-cells":
+  #   type: int
+  #   const: 2
   param1:
     type: int
   param2:
