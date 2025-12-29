@@ -2,6 +2,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/input/input.h>
+#include <zmk/behavior.h> // input pprocessor.hが読み込めないならこれはどうかな？
 #include <zmk/input_processor.h>
 #include <stdlib.h> // abs() 用
 
