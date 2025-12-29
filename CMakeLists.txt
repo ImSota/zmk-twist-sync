@@ -1,10 +1,11 @@
 # target_sources_ifdef(CONFIG_ZMK_FEATURE_TWISTSYNC, app PRIVATE src/zmk-feature-twistsync.c)
 
-# モジュール用のライブラリとして宣言
+# モジュールをライブラリとして宣言
 zephyr_library()
 
-# ソイスファイルの追加（相対パスを自動解決）
-zephyr_library_sources(src/zmk-feature-twistsync.c)
+# ZMK 本体の include パスをこのモジュールに追加
+# これにより <zmk/input_processor.h> が見つかるようになります
+zephyr_library_include_directories(${PYTHON_EXECUTABLE} ${WEST_TOPDIR}/zmk/app/include)
 
-# ZMKのアプリ層（app）にこのライブラリをリンクさせる
-zephyr_library_link_libraries(app)
+# ソースファイルの追加
+zephyr_library_sources(src/zmk-feature-twistsync.c)
