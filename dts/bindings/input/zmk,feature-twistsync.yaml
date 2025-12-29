@@ -24,3 +24,13 @@ properties:
   track_remainders:
     type: boolean
     description: "Whether to track remainders for high-precision movement"
+
+  sensor-left:
+    type: phandle
+    required: true
+    description: "Left sensor (Sensor A)"
+
+  sensor-top:
+    type: phandle
+    required: true
+    description: "Top sensor (Sensor B)"
