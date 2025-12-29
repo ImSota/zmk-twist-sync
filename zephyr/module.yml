@@ -4,8 +4,8 @@
 name: zmk-feature-twistsync
 build:
   # List your dependencies
-  depends:
-    - zmk-example-dependency
+  # depends:
+  #   - zmk-example-dependency
   # Folder containing a "CMakeLists.txt" (. = root)
   cmake: .
   # Kconfig filepath
