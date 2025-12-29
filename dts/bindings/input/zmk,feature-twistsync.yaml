@@ -1,5 +1,6 @@
 description: Twist synchronization input processor
 compatible: "zmk,feature-twistsync"
+
 properties:
   "#input-processor-cells":
     type: int
@@ -10,7 +11,5 @@ properties:
     type: int
   sensor-right:
     type: phandle
-    required: true
   sensor-bottom:
     type: phandle
-    required: true
