@@ -22,5 +22,5 @@ properties:
 
   # 内部処理で必要になる可能性があるため記述
   track_remainders:
-    type: bool
+    type: boolean
     description: "Whether to track remainders for high-precision movement"
