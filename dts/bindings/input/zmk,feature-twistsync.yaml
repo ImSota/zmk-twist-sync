@@ -1,36 +1,16 @@
 description: Twist synchronization input processor
 compatible: "zmk,feature-twistsync"
-# include: [input-processor] # 添付されたheaderに対応するベース定義
-
-# 他のファイルを include せず、ここで直接ルールを定義します
 properties:
-  # これにより、&twist_sync 5 2 のように2つの引数を取れるようになります
   "#input-processor-cells":
     type: int
     const: 2
-    description: "Number of cells in an input-processor specifier (param1, param2)"
-
-  # param1: 同調のしきい値（感度）
   param1:
     type: int
-    description: "Sensitivity threshold for synchronization (allowed difference between dy_a and dy_b)"
-
-  # param2: スクロール速度の分割数
   param2:
     type: int
-    description: "Scroll division factor (e.g., 2 to halve the scroll speed)"
-
-  # 内部処理で必要になる可能性があるため記述
-  track_remainders:
-    type: boolean
-    description: "Whether to track remainders for high-precision movement"
-
-  sensor-left:
+  sensor-right:
     type: phandle
     required: true
-    description: "Left sensor (Sensor A)"
-
-  sensor-top:
+  sensor-bottom:
     type: phandle
     required: true
-    description: "Top sensor (Sensor B)"
