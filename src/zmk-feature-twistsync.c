@@ -115,7 +115,7 @@ static const struct zmk_input_processor_driver_api twist_sync_driver_api = {
                         &twist_sync_data_##n,                                                      \
                         &twist_sync_config_##n,                                                    \
                         POST_KERNEL,                                                               \
-                        CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,                                       \
+                        90,    /* ここを CONFIG_KERNEL_INIT_PRIORITY_DEFAULT (50) より遅い値 (90) に設定 */ \
                         &twist_sync_driver_api);
 
 DT_INST_FOREACH_STATUS_OKAY(TWIST_SYNC_INST)
