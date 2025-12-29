@@ -1,5 +1,5 @@
 compatible: "zmk,feature-twistsync"
-include: [zmk,input-processor.yaml] # 添付されたheaderに対応するベース定義
+include: [zmk,input-processor] # 添付されたheaderに対応するベース定義
 
 properties:
   param1:
