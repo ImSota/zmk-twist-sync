@@ -1,0 +1,10 @@
+compatible: "zmk,feature-twistsync"
+include: [input-processor.yaml] # 添付されたheaderに対応するベース定義
+
+properties:
+  param1:
+    type: int
+    description: "Sensitivity threshold for synchronization"
+  param2:
+    type: int
+    description: "Scroll division factor"

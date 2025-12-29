@@ -1,0 +1,4 @@
+config ZMK_FEATURE_TWISTSYNC
+    bool "Twist synchronization input processor"
+    default y
+    depends on DT_HAS_ZMK_FEATURE_TWISTSYNC_ENABLED
