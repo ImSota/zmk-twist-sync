@@ -1,1 +1,1 @@
-target_sources_ifdef(CONFIG_ZMK_FEATURE_TWISTSYNC, app PRIVATE src/twistsync.c)
+target_sources_ifdef(CONFIG_ZMK_FEATURE_TWISTSYNC, app PRIVATE src/zmk-feature-twistsync.c)
