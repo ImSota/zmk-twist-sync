@@ -20,9 +20,7 @@ struct twist_sync_data {
 
 static bool is_synchronized(int16_t a, int16_t b, uint32_t threshold) {
     if (a == 0 || b == 0) return false;
-    // 符号一致確認（同方向にひねっているか）
     if ((a > 0 && b < 0) || (a < 0 && b > 0)) return false;
-    // 差分がしきい値以内か
     return (abs(a - b) <= (int)threshold);
 }
 
@@ -39,10 +37,11 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     // --- センサーA (右側面) の処理 ---
     if (event->dev == config->sensor_right) {
         if (event->code == INPUT_REL_X) {
-            // XA方向の動作を検知した場合、カーソルを横移動（そのまま継続）
+            // XA方向の動作：全体座標系のX（横移動）
+            // そのまま Cursor X として通す
             return ZMK_INPUT_PROC_CONTINUE;
         } else if (event->code == INPUT_REL_Y) {
-            // YA方向の動作を保持
+            // YA方向の動作：スクロール判定用
             data->dy_a = event->value;
             goto check_sync;
         }
@@ -51,11 +50,12 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     // --- センサーB (手前側面) の処理 ---
     if (event->dev == config->sensor_bottom) {
         if (event->code == INPUT_REL_X) {
-            // XB方向の動作を検知した場合、カーソルを縦移動に変換
+            // XB方向の動作：全体座標系のY（縦移動）
+            // INPUT_REL_X を INPUT_REL_Y に変換してカーソルを縦に動かす
             event->code = INPUT_REL_Y;
             return ZMK_INPUT_PROC_CONTINUE;
         } else if (event->code == INPUT_REL_Y) {
-            // YB方向の動作を保持
+            // YB方向の動作：スクロール判定用
             data->dy_b = event->value;
             goto check_sync;
         }
@@ -64,20 +64,17 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     return ZMK_INPUT_PROC_CONTINUE;
 
 check_sync:
-    // センサーAがYA, センサーBがYB方向に移動を検知した時の同調判定
     if (is_synchronized(data->dy_a, data->dy_b, param1)) {
-        // 同調していればスクロールに変換
         event->code = INPUT_REL_WHEEL;
         int16_t avg = (data->dy_a + data->dy_b) / 2;
         event->value = avg / (int16_t)(param2 > 0 ? param2 : 1);
 
-        // バッファをクリア
         data->dy_a = 0;
         data->dy_b = 0;
         return ZMK_INPUT_PROC_CONTINUE;
     }
 
-    // 同調していないYA/YBイベントは一旦止めて、相方のイベントを待つ（またはノイズとして捨てる）
+    // 同調待ちの間、YA/YBの移動はカーソルに反映させない
     return ZMK_INPUT_PROC_STOP;
 }
 
