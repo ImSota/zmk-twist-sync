@@ -94,7 +94,7 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
 
     // 3. モードに基づいたイベントの実行
     if (data->scroll_mode) {
-        // スクロールモード中
+        // スクロールモード中：同調イベント(REL_X同士)のみ通し、それ以外（カーソル移動）は封印
         if (event->code == INPUT_REL_X && data->dy_a != 0 && data->dy_b != 0) {
             event->code = INPUT_REL_WHEEL;
             int16_t avg = (data->dy_a + data->dy_b) / 2;
@@ -103,14 +103,28 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
             data->dy_b = 0;
             return ZMK_INPUT_PROC_CONTINUE;
         }
-        return ZMK_INPUT_PROC_STOP; // スクロール中はカーソル移動を封印
+        return ZMK_INPUT_PROC_STOP; 
     }
 
     if (data->not_scroll_mode) {
-        // カーソル移動モード中
-        if (event->code == INPUT_REL_WHEEL || (is_right && event->code == INPUT_REL_X) || (!is_right && event->code == INPUT_REL_X)) {
-             return ZMK_INPUT_PROC_STOP; // ひねり成分を無視
+        // カーソル移動モード中：
+        // 「本来のスクロール軸(REL_X)」から来たイベントのみをブロックする
+        if (event->code == INPUT_REL_WHEEL) return ZMK_INPUT_PROC_STOP;
+        
+        // センサーが本来持っていた物理的な REL_X イベント（ひねり成分）を捨てる
+        // ※ 既に座標変換で REL_Y -> REL_X になっているものは通す必要があるため、
+        // ここでは「イベントの発生源となった物理コード」をチェックするのが理想ですが、
+        // 簡易的には「変換後のコード」ではなく「デバイスごとの役割」で判定します。
+
+        if (is_right && data->dy_a != 0) { // 右センサーのスクロール軸に値がある時
+            data->dy_a = 0;
+            return ZMK_INPUT_PROC_STOP;
         }
+        if (!is_right && data->dy_b != 0) { // 下センサーのスクロール軸に値がある時
+            data->dy_b = 0;
+            return ZMK_INPUT_PROC_STOP;
+        }
+
         return ZMK_INPUT_PROC_CONTINUE;
     }
 
