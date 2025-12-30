@@ -72,12 +72,13 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
         else data->dy_b = val;
 
         // 両方の軸に値が揃ったら、ひねり方向の勢いを更新
-        if (data->dy_a != 0 && data->dy_b != 0) {
-            if ((data->dy_a > 0 && data->dy_b > 0) || (data->dy_a < 0 && data->dy_b < 0)) {
-                int16_t sync_val = (abs(data->dy_a) + abs(data->dy_b)) / 2;
-                update_ema(&data->avg_twist, sync_val);
-            }
-        }
+        // if (data->dy_a != 0 && data->dy_b != 0) {
+        //     if ((data->dy_a > 0 && data->dy_b > 0) || (data->dy_a < 0 && data->dy_b < 0)) {
+        //         int16_t sync_val = (abs(data->dy_a) + abs(data->dy_b)) / 2;
+        //         update_ema(&data->avg_twist, sync_val);
+        //     }
+        // }
+        update_ema(&data->avg_twist, val);
         // ここで飛ばさず、一旦下のモード判定へ流す
     }
 
@@ -102,8 +103,9 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     if (data->scroll_mode) {
         if (event->code == INPUT_REL_X && data->dy_a != 0 && data->dy_b != 0) {
             event->code = INPUT_REL_WHEEL;
-            int16_t avg = (data->dy_a + data->dy_b) / 2;
-            event->value = -(avg / (int16_t)(param2 > 0 ? param2 : 1));
+            // int16_t avg = (data->dy_a + data->dy_b) / 2;
+            // event->value = -(avg / (int16_t)(param2 > 0 ? param2 : 1));
+            event->value = -(val / (int16_t)(param2 > 0 ? param2 : 1));
             data->dy_a = 0;
             data->dy_b = 0;
             return ZMK_INPUT_PROC_CONTINUE;
