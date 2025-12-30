@@ -12,7 +12,7 @@ LOG_MODULE_REGISTER(zmk_input_processor_twist_sync, CONFIG_INPUT_LOG_LEVEL);
 /* 判定用定数 */
 #define SCROLL_THRESHOLD_MIN 5   // これ以下の動きを「微小操作」とみなす
 #define CURSOR_BLOCK_LIMIT  2    // これ以上のカーソル移動があればスクロール判定をリセット
-#define RATIO_MARGIN        3    // スクロール軸がカーソル軸の何倍必要か
+#define RATIO_MARGIN        2    // スクロール軸がカーソル軸の何倍必要か
 
 struct twist_sync_config {
     const struct device *sensor_right; // センサーA
@@ -112,4 +112,17 @@ check_sync:
     return ZMK_INPUT_PROC_STOP;
 }
 
-// (以下、API定義などは変更なし)
+static const struct zmk_input_processor_driver_api twist_sync_driver_api = {
+    .handle_event = twist_sync_handle_event,
+};
+
+#define TWIST_SYNC_INST(n)                                                                         \
+    static struct twist_sync_data twist_sync_data_##n = {0};                                       \
+    static const struct twist_sync_config twist_sync_config_##n = {                                \
+        .sensor_right = DEVICE_DT_GET(DT_INST_PHANDLE(n, sensor_right)),                           \
+        .sensor_bottom = DEVICE_DT_GET(DT_INST_PHANDLE(n, sensor_bottom)),                         \
+    };                                                                                             \
+    DEVICE_DT_INST_DEFINE(n, NULL, NULL, &twist_sync_data_##n, &twist_sync_config_##n,             \
+                        POST_KERNEL, 90, &twist_sync_driver_api);
+
+DT_INST_FOREACH_STATUS_OKAY(TWIST_SYNC_INST)
