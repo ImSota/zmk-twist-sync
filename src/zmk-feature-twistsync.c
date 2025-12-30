@@ -10,8 +10,8 @@
 LOG_MODULE_REGISTER(zmk_input_processor_twist_sync, CONFIG_INPUT_LOG_LEVEL);
 
 /* 判定用定数（必要に応じて調整） */
-#define SCROLL_THRESHOLD_MIN 10   //5 これ以下の動きを「微小操作」とみなす
-#define CURSOR_BLOCK_LIMIT  10    //2 微小操作中、これ以上のカーソル移動軸の動きがあればブロック
+#define SCROLL_THRESHOLD_MIN 5   //5 これ以下の動きを「微小操作」とみなす
+#define CURSOR_BLOCK_LIMIT  2    //2 微小操作中、これ以上のカーソル移動軸の動きがあればブロック
 #define RATIO_MARGIN        2    // 高速域での比率（XがYの何倍以上必要か）
 
 struct twist_sync_config {
