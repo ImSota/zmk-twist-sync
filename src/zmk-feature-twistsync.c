@@ -4,15 +4,15 @@
 #include <zephyr/device.h>
 #include <zephyr/input/input.h>
 #include <drivers/input_processor.h>
-#include <stdlib.h> // abs() 用
+#include <stdlib.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(zmk_input_processor_twist_sync, CONFIG_INPUT_LOG_LEVEL);
 
-/* 判定用定数 */
-#define SCROLL_THRESHOLD_MIN 5   // これ以下の動きを「微小操作」とみなす
-#define CURSOR_BLOCK_LIMIT  2    // これ以上のカーソル移動があればスクロール判定をリセット
-#define RATIO_MARGIN        2    // スクロール軸がカーソル軸の何倍必要か
+/* 調整用定数 (固定小数点: 値を8倍して保持) */
+#define EMA_ALPHA_SHIFT 2    // 移動平均の重み (小さいほどゆっくり変化)
+#define MODE_THRESHOLD  32   // モード確定しきい値 (4.0 * 8)
+#define EXIT_THRESHOLD  4    // モード解除しきい値 (0.5 * 8)
 
 struct twist_sync_config {
     const struct device *sensor_right; // センサーA
@@ -20,29 +20,22 @@ struct twist_sync_config {
 };
 
 struct twist_sync_data {
-    int16_t dy_a; // スクロール判定用軸 (XA)
-    int16_t dy_b; // スクロール判定用軸 (XB)
-    int16_t last_y_a;
-    int16_t last_y_b;
+    int16_t dy_a; // 判定用一時バッファ
+    int16_t dy_b;
+    
+    // 状態ロック用フラグ
+    bool scroll_mode;
+    bool not_scroll_mode;
+
+    // 移動平均 (EMA) 蓄積変数
+    int32_t avg_twist;  // ひねり方向の勢い
+    int32_t avg_cursor; // カーソル方向の勢い
 };
 
-static bool is_synchronized(int16_t a, int16_t b, int16_t cur_y_a, int16_t cur_y_b, uint32_t threshold) {
-    if (a == 0 || b == 0) return false;
-    if ((a > 0 && b < 0) || (a < 0 && b > 0)) return false;
-    if (abs(a - b) > (int)threshold) return false;
-
-    int16_t abs_a = abs(a);
-    int16_t abs_y_a = abs(cur_y_a);
-    int16_t abs_y_b = abs(cur_y_b);
-
-    // 【2段構えガード】
-    if (abs_a <= SCROLL_THRESHOLD_MIN) {
-        if (abs_y_a > CURSOR_BLOCK_LIMIT || abs_y_b > CURSOR_BLOCK_LIMIT) return false;
-    } else {
-        if (abs_a < (abs_y_a * RATIO_MARGIN)) return false;
-    }
-
-    return true;
+/* 指数移動平均の更新関数 */
+static void update_ema(int32_t *avg, int16_t new_val) {
+    int32_t val_scaled = (int32_t)abs(new_val) << 3; // 8倍スケール
+    *avg = *avg + ((val_scaled - *avg) >> EMA_ALPHA_SHIFT);
 }
 
 static int twist_sync_handle_event(const struct device *dev, struct input_event *event,
@@ -55,61 +48,74 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
         return ZMK_INPUT_PROC_CONTINUE;
     }
 
-    // --- センサーA (右側面) ---
-    if (event->dev == config->sensor_right) {
-        if (event->code == INPUT_REL_Y) {
+    int16_t val = event->value;
+    bool is_right = (event->dev == config->sensor_right);
+
+    // 1. 各軸のイベントを仕分け、EMAを更新
+    if (event->code == INPUT_REL_Y) {
+        // カーソル移動軸 (YA または YB)
+        update_ema(&data->avg_cursor, val);
+        
+        // 座標変換 (センサーAならX、センサーBならY)
+        if (is_right) {
             event->code = INPUT_REL_X;
-            event->value = -event->value; 
-            data->last_y_a = event->value;
+            event->value = -val;
+        } else {
+            event->value = -val;
+        }
+    } else if (event->code == INPUT_REL_X) {
+        // スクロール判定軸 (XA または XB)
+        if (is_right) data->dy_a = val;
+        else data->dy_b = val;
 
-            // 【強制クリア】カーソル移動が発生したら、スクロール用バッファをリセット
-            if (abs(event->value) > CURSOR_BLOCK_LIMIT) {
-                data->dy_a = 0;
-                data->dy_b = 0;
+        // 同調成分を計算してEMA更新
+        if (data->dy_a != 0 && data->dy_b != 0) {
+            if ((data->dy_a > 0 && data->dy_b > 0) || (data->dy_a < 0 && data->dy_b < 0)) {
+                int16_t sync_val = (abs(data->dy_a) + abs(data->dy_b)) / 2;
+                update_ema(&data->avg_twist, sync_val);
             }
-            return ZMK_INPUT_PROC_CONTINUE;
-        } else if (event->code == INPUT_REL_X) {
-            data->dy_a = event->value;
-            goto check_sync;
         }
     }
 
-    // --- センサーB (手前側面) ---
-    if (event->dev == config->sensor_bottom) {
-        if (event->code == INPUT_REL_Y) {
-            event->value = -event->value; 
-            data->last_y_b = event->value;
-
-            // 【強制クリア】カーソル移動が発生したら、スクロール用バッファをリセット
-            if (abs(event->value) > CURSOR_BLOCK_LIMIT) {
-                data->dy_a = 0;
-                data->dy_b = 0;
-            }
-            return ZMK_INPUT_PROC_CONTINUE;
-        } else if (event->code == INPUT_REL_X) {
-            data->dy_b = event->value;
-            goto check_sync;
-        }
+    // 2. 状態ロックの判定
+    // 動きが止まればモードリセット
+    if (data->avg_cursor < EXIT_THRESHOLD && data->avg_twist < EXIT_THRESHOLD) {
+        data->scroll_mode = false;
+        data->not_scroll_mode = false;
     }
 
-    return ZMK_INPUT_PROC_CONTINUE;
+    // モード確定
+    if (!data->scroll_mode && data->avg_cursor > MODE_THRESHOLD) {
+        data->not_scroll_mode = true;
+    }
+    if (!data->not_scroll_mode && data->avg_twist > MODE_THRESHOLD) {
+        data->scroll_mode = true;
+    }
 
-check_sync:
-    if (is_synchronized(data->dy_a, data->dy_b, data->last_y_a, data->last_y_b, param1)) {
-        event->code = INPUT_REL_WHEEL;
-        int16_t avg = (data->dy_a + data->dy_b) / 2;
-        event->value = -(avg / (int16_t)(param2 > 0 ? param2 : 1));
+    // 3. モードに基づいたイベントの実行
+    if (data->scroll_mode) {
+        // スクロールモード中
+        if (event->code == INPUT_REL_X && data->dy_a != 0 && data->dy_b != 0) {
+            event->code = INPUT_REL_WHEEL;
+            int16_t avg = (data->dy_a + data->dy_b) / 2;
+            event->value = -(avg / (int16_t)(param2 > 0 ? param2 : 1));
+            data->dy_a = 0;
+            data->dy_b = 0;
+            return ZMK_INPUT_PROC_CONTINUE;
+        }
+        return ZMK_INPUT_PROC_STOP; // スクロール中はカーソル移動を封印
+    }
 
-        data->dy_a = 0;
-        data->dy_b = 0;
-        data->last_y_a = 0;
-        data->last_y_b = 0;
+    if (data->not_scroll_mode) {
+        // カーソル移動モード中
+        if (event->code == INPUT_REL_WHEEL || (is_right && event->code == INPUT_REL_X) || (!is_right && event->code == INPUT_REL_X)) {
+             return ZMK_INPUT_PROC_STOP; // ひねり成分を無視
+        }
         return ZMK_INPUT_PROC_CONTINUE;
     }
 
-    // 同調しなかった場合も、片方のデータが大きすぎる場合はノイズとみなしてクリアを検討
-    // 今回は安全のため、単純なSTOPに留めます
-    return ZMK_INPUT_PROC_STOP;
+    // モード未確定時は全て通す（または慎重に制限する）
+    return ZMK_INPUT_PROC_CONTINUE;
 }
 
 static const struct zmk_input_processor_driver_api twist_sync_driver_api = {
