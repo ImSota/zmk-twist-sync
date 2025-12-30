@@ -38,6 +38,8 @@ static void update_ema(int32_t *avg, int16_t new_val) {
     *avg = *avg + ((val_scaled - *avg) >> EMA_ALPHA_SHIFT);
 }
 
+// ... (ヘッダー・構造体部分は変更なし)
+
 static int twist_sync_handle_event(const struct device *dev, struct input_event *event,
                                    uint32_t param1, uint32_t param2,
                                    struct zmk_input_processor_state *state) {
@@ -51,40 +53,41 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     int16_t val = event->value;
     bool is_right = (event->dev == config->sensor_right);
 
-    // 1. 各軸のイベントを仕分け、EMAを更新
+    // --- 1. 各軸のイベントを仕分け、EMA（勢い）を更新 ---
     if (event->code == INPUT_REL_Y) {
-        // カーソル移動軸 (YA または YB)
+        // カーソル移動軸の勢いを更新
         update_ema(&data->avg_cursor, val);
         
-        // 座標変換 (センサーAならX、センサーBならY)
+        // 座標変換
         if (is_right) {
-            event->code = INPUT_REL_X;
+            event->code = INPUT_REL_X; // YA -> 全体X
             event->value = -val;
         } else {
-            event->value = -val;
+            event->value = -val; // YB -> 全体Y
         }
     } else if (event->code == INPUT_REL_X) {
-        // スクロール判定軸 (XA または XB)
+        // スクロール判定軸 (XA または XB) の値をバッファ
         if (is_right) data->dy_a = val;
         else data->dy_b = val;
 
-        // 同調成分を計算してEMA更新
+        // 両方の軸に値が揃ったら、ひねり方向の勢いを更新
         if (data->dy_a != 0 && data->dy_b != 0) {
             if ((data->dy_a > 0 && data->dy_b > 0) || (data->dy_a < 0 && data->dy_b < 0)) {
                 int16_t sync_val = (abs(data->dy_a) + abs(data->dy_b)) / 2;
                 update_ema(&data->avg_twist, sync_val);
             }
         }
+        // ここで飛ばさず、一旦下のモード判定へ流す
     }
 
-    // 2. 状態ロックの判定
-    // 動きが止まればモードリセット
+    // --- 2. 状態ロックの判定（QMKロジック） ---
+    // 完全に静止したらモードリセット
     if (data->avg_cursor < EXIT_THRESHOLD && data->avg_twist < EXIT_THRESHOLD) {
         data->scroll_mode = false;
         data->not_scroll_mode = false;
     }
 
-    // モード確定
+    // 勢いに基づいてモードを「ロック」
     if (!data->scroll_mode && data->avg_cursor > MODE_THRESHOLD) {
         data->not_scroll_mode = true;
     }
@@ -92,9 +95,10 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
         data->scroll_mode = true;
     }
 
-    // 3. モードに基づいたイベントの実行
+    // --- 3. モードに基づいたイベントの実行制御 ---
+    
+    // A: スクロールモード確定時
     if (data->scroll_mode) {
-        // スクロールモード中：同調イベント(REL_X同士)のみ通し、それ以外（カーソル移動）は封印
         if (event->code == INPUT_REL_X && data->dy_a != 0 && data->dy_b != 0) {
             event->code = INPUT_REL_WHEEL;
             int16_t avg = (data->dy_a + data->dy_b) / 2;
@@ -103,32 +107,26 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
             data->dy_b = 0;
             return ZMK_INPUT_PROC_CONTINUE;
         }
-        return ZMK_INPUT_PROC_STOP; 
+        return ZMK_INPUT_PROC_STOP; // スクロール中はカーソル移動を遮断
     }
 
+    // B: カーソル移動モード確定時
     if (data->not_scroll_mode) {
-        // カーソル移動モード中：
-        // 「本来のスクロール軸(REL_X)」から来たイベントのみをブロックする
-        if (event->code == INPUT_REL_WHEEL) return ZMK_INPUT_PROC_STOP;
-        
-        // センサーが本来持っていた物理的な REL_X イベント（ひねり成分）を捨てる
-        // ※ 既に座標変換で REL_Y -> REL_X になっているものは通す必要があるため、
-        // ここでは「イベントの発生源となった物理コード」をチェックするのが理想ですが、
-        // 簡易的には「変換後のコード」ではなく「デバイスごとの役割」で判定します。
-
-        if (is_right && data->dy_a != 0) { // 右センサーのスクロール軸に値がある時
-            data->dy_a = 0;
+        // 元の物理コードが REL_X（ひねり軸）由来なら捨てる
+        // 座標変換された後の REL_X (YA由来) は通す必要がある
+        if (event->code == INPUT_REL_X && (is_right ? (data->dy_a != 0) : (data->dy_b != 0))) {
+            data->dy_a = 0; data->dy_b = 0;
             return ZMK_INPUT_PROC_STOP;
         }
-        if (!is_right && data->dy_b != 0) { // 下センサーのスクロール軸に値がある時
-            data->dy_b = 0;
-            return ZMK_INPUT_PROC_STOP;
-        }
-
         return ZMK_INPUT_PROC_CONTINUE;
     }
 
-    // モード未確定時は全て通す（または慎重に制限する）
+    // C: モード未確定時（中立）
+    // ひねり軸（REL_X）単体でのイベントは、相方が来るまで一旦止める
+    if (event->code == INPUT_REL_X) {
+        return ZMK_INPUT_PROC_STOP;
+    }
+    
     return ZMK_INPUT_PROC_CONTINUE;
 }
 
