@@ -1,5 +1,6 @@
 #define DT_DRV_COMPAT zmk_feature_twistsync
 
+#include <stdint.h>
 #include <zephyr/device.h>
 #include <zephyr/input/input.h>
 #include <drivers/input_processor.h>
@@ -8,22 +9,45 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(zmk_input_processor_twist_sync, CONFIG_INPUT_LOG_LEVEL);
 
+/* 判定用定数（必要に応じて調整） */
+#define SCROLL_THRESHOLD_MIN 5   // これ以下の動きを「微小操作」とみなす
+#define CURSOR_BLOCK_LIMIT  2    // 微小操作中、これ以上のカーソル移動軸の動きがあればブロック
+#define RATIO_MARGIN        2    // 高速域での比率（XがYの何倍以上必要か）
+
 struct twist_sync_config {
     const struct device *sensor_right; // センサーA
     const struct device *sensor_bottom; // センサーB
 };
 
 struct twist_sync_data {
-    int16_t dy_a;
-    int16_t dy_b;
+    int16_t dy_a; // スクロール判定用軸 (XA)
+    int16_t dy_b; // スクロール判定用軸 (XB)
+    int16_t last_y_a; // 直前のカーソル移動軸の値 (YA)
+    int16_t last_y_b; // 直前のカーソル移動軸の値 (YB)
 };
 
-static bool is_synchronized(int16_t a, int16_t b, uint32_t threshold) {
+static bool is_synchronized(int16_t a, int16_t b, int16_t cur_y_a, int16_t cur_y_b, uint32_t threshold) {
     if (a == 0 || b == 0) return false;
-    // 符号一致確認
+    
+    // 1. 符号一致（方向）
     if ((a > 0 && b < 0) || (a < 0 && b > 0)) return false;
-    // 差分がしきい値以内か
-    return (abs(a - b) <= (int)threshold);
+    
+    // 2. 同調精度（param1）
+    if (abs(a - b) > (int)threshold) return false;
+
+    // --- 2段構えのガードロジック ---
+    int16_t abs_a = abs(a);
+    int16_t abs_y_a = abs(cur_y_a);
+
+    if (abs_a <= SCROLL_THRESHOLD_MIN) {
+        // 【低速域】カーソル軸がほぼ静止（CURSOR_BLOCK_LIMIT以下）している時だけ許可
+        if (abs_y_a > CURSOR_BLOCK_LIMIT || abs(cur_y_b) > CURSOR_BLOCK_LIMIT) return false;
+    } else {
+        // 【高速域】スクロール軸がカーソル軸より圧倒的に大きい（比率判定）
+        if (abs_a < (abs_y_a * RATIO_MARGIN)) return false;
+    }
+
+    return true;
 }
 
 static int twist_sync_handle_event(const struct device *dev, struct input_event *event,
@@ -36,31 +60,26 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
         return ZMK_INPUT_PROC_CONTINUE;
     }
 
-    // --- センサーA (右側面) の処理 ---
+    // --- センサーA (右側面) ---
     if (event->dev == config->sensor_right) {
         if (event->code == INPUT_REL_Y) {
-            // YA方向の動作を全体X（横移動）に変換
             event->code = INPUT_REL_X;
-            // ★横移動が逆なら - をつける（または消す）
-            event->value = -event->value;
+            event->value = -event->value; // 反転設定
+            data->last_y_a = event->value; // カーソル軸の値を記録
             return ZMK_INPUT_PROC_CONTINUE;
         } else if (event->code == INPUT_REL_X) {
-            // XA方向の動作をスクロール判定用に保持
             data->dy_a = event->value;
             goto check_sync;
         }
     }
 
-    // --- センサーB (手前側面) の処理 ---
+    // --- センサーB (手前側面) ---
     if (event->dev == config->sensor_bottom) {
         if (event->code == INPUT_REL_Y) {
-            // YB方向の動作を全体Y（縦移動）として扱う
-            // (既に REL_Y なので code の書き換えは不要)
-            // ★縦移動が逆なら - をつける（または消す）
-            event->value = -event->value;
+            event->value = -event->value; // 反転設定
+            data->last_y_b = event->value; // カーソル軸の値を記録
             return ZMK_INPUT_PROC_CONTINUE;
         } else if (event->code == INPUT_REL_X) {
-            // XB方向の動作をスクロール判定用に保持
             data->dy_b = event->value;
             goto check_sync;
         }
@@ -69,20 +88,20 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     return ZMK_INPUT_PROC_CONTINUE;
 
 check_sync:
-    // 同調判定
-    if (is_synchronized(data->dy_a, data->dy_b, param1)) {
+    // 同調判定（YA, YBの現在の状態を渡す）
+    if (is_synchronized(data->dy_a, data->dy_b, data->last_y_a, data->last_y_b, param1)) {
         event->code = INPUT_REL_WHEEL;
         int16_t avg = (data->dy_a + data->dy_b) / 2;
-        // ★スクロール方向が逆なら - をつける（または消す）
         event->value = -(avg / (int16_t)(param2 > 0 ? param2 : 1));
-        // event->value = avg / (int16_t)(param2 > 0 ? param2 : 1);
 
+        // 使用後は全バッファをクリア
         data->dy_a = 0;
         data->dy_b = 0;
+        data->last_y_a = 0;
+        data->last_y_b = 0;
         return ZMK_INPUT_PROC_CONTINUE;
     }
 
-    // 同調していない XA/XB イベントはドロップ
     return ZMK_INPUT_PROC_STOP;
 }
 
