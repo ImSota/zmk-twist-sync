@@ -69,6 +69,7 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     } else if (event->code == INPUT_REL_X) {
         // スクロール判定軸 (XA または XB) の値をバッファ
         if (is_right) data->dy_a = val;
+            update_ema(&data->avg_twist, val);
         else data->dy_b = val;
 
         // 両方の軸に値が揃ったら、ひねり方向の勢いを更新
@@ -78,7 +79,7 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
         //         update_ema(&data->avg_twist, sync_val);
         //     }
         // }
-        update_ema(&data->avg_twist, val);
+        
         // ここで飛ばさず、一旦下のモード判定へ流す
     }
 
