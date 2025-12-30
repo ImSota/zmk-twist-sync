@@ -88,11 +88,11 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     }
 
     // 勢いに基づいてモードを「ロック」
-    if (!data->scroll_mode && data->avg_cursor > MODE_THRESHOLD) {
-        data->not_scroll_mode = true;
-    }
     if (!data->not_scroll_mode && data->avg_twist > MODE_THRESHOLD) {
         data->scroll_mode = true;
+    }
+    if (!data->scroll_mode && data->avg_cursor > MODE_THRESHOLD) {
+        data->not_scroll_mode = true;
     }
 
     // --- 3. モードに基づいたイベントの実行制御 ---
