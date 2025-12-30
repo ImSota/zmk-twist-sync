@@ -12,7 +12,7 @@ LOG_MODULE_REGISTER(zmk_input_processor_twist_sync, CONFIG_INPUT_LOG_LEVEL);
 /* 調整用定数 (固定小数点: 値を8倍して保持) */
 #define EMA_ALPHA_SHIFT 2    // 移動平均の重み (小さいほどゆっくり変化)
 #define CURSOR_THRESHOLD  32   // カーソル確定しきい値 (4.0 * 8)
-#define SCROLL_THRESHOLD  4   // スクロール確定しきい値 (4.0 * 8)
+#define SCROLL_THRESHOLD  32   // スクロール確定しきい値 (4.0 * 8)
 #define EXIT_THRESHOLD  4    // モード解除しきい値 (0.5 * 8)
 
 struct twist_sync_config {
