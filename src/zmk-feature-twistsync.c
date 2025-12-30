@@ -41,8 +41,6 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
         if (event->code == INPUT_REL_Y) {
             // YA方向の動作を全体X（横移動）に変換
             event->code = INPUT_REL_X;
-            // ★横移動が逆なら - をつける（または消す）
-            event->value = -event->value;
             return ZMK_INPUT_PROC_CONTINUE;
         } else if (event->code == INPUT_REL_X) {
             // XA方向の動作をスクロール判定用に保持
@@ -56,8 +54,6 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
         if (event->code == INPUT_REL_Y) {
             // YB方向の動作を全体Y（縦移動）として扱う
             // (既に REL_Y なので code の書き換えは不要)
-            // ★縦移動が逆なら - をつける（または消す）
-            event->value = -event->value;
             return ZMK_INPUT_PROC_CONTINUE;
         } else if (event->code == INPUT_REL_X) {
             // XB方向の動作をスクロール判定用に保持
@@ -73,8 +69,7 @@ check_sync:
     if (is_synchronized(data->dy_a, data->dy_b, param1)) {
         event->code = INPUT_REL_WHEEL;
         int16_t avg = (data->dy_a + data->dy_b) / 2;
-        // ★スクロール方向が逆なら - をつける（または消す）
-        event->value = -(avg / (int16_t)(param2 > 0 ? param2 : 1));
+        event->value = avg / (int16_t)(param2 > 0 ? param2 : 1);
 
         data->dy_a = 0;
         data->dy_b = 0;
