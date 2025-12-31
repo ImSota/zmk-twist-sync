@@ -15,7 +15,7 @@ LOG_MODULE_REGISTER(zmk_input_processor_twist_sync, CONFIG_INPUT_LOG_LEVEL);
 #define CURSOR_THRESHOLD 10  // 固定小数点(x8)
 #define SCROLL_THRESHOLD 24  // スクロールしやすさを考慮し少し下方修正
 #define EXIT_THRESHOLD 4
-#define SYNC_WINDOW_MS 10    // AとBのパケットを待つ時間（ミリ秒）
+#define SYNC_WINDOW_MS 100    // AとBのパケットを待つ時間（ミリ秒）
 
 struct twist_sync_config {
     const struct device *sensor_right; // センサーA
