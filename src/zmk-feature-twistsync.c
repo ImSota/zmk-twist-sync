@@ -12,7 +12,7 @@ LOG_MODULE_REGISTER(zmk_input_processor_twist_sync, CONFIG_INPUT_LOG_LEVEL);
 
 /* 調整用定数 (固定小数点: 値を256倍して保持) */
 #define EMA_ALPHA_SHIFT 3     // 追従速度 (小さいほど敏感)
-#define CURSOR_THRESHOLD 2048 // 8.0 * 256
+#define CURSOR_THRESHOLD 1024 // 8.0 * 256
 #define SCROLL_THRESHOLD 1024 // 4.0 * 256 (発動しやすくするため下方修正)
 #define EXIT_THRESHOLD   256  // 1.0 * 256
 #define SYNC_WINDOW_MS   50   // 現実的な同期窓
@@ -113,19 +113,21 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     }
 
     // --- 出力フェーズ ---
+    // 1. スクロールモード確定時
     if (data->scroll_mode) {
-        if (event->code == INPUT_REL_X) {
-            // REL_X (ひねり軸) が来たらホイールに変換
+        if (event->code == INPUT_REL_X && (is_right ? (data->dy_a != 0) : (data->dy_b != 0))) {
             event->code = INPUT_REL_WHEEL;
-            // 片方のみのイベントでも、モード中ならスクロールとして出す
             event->value = -(val / (int16_t)(param2 > 0 ? param2 : 1));
+            data->dy_a = 0; data->dy_b = 0;
             return ZMK_INPUT_PROC_CONTINUE;
         }
-        return ZMK_INPUT_PROC_STOP; // スクロール中はカーソル移動(REL_Y由来)を止める
+        return ZMK_INPUT_PROC_STOP; 
     }
 
+    // 2. カーソル移動モード確定時
     if (data->not_scroll_mode) {
-        // カーソルモード中、ひねり軸(REL_X)は捨てる
+        // 物理的なひねり軸(REL_X)由来のイベントだけを捨てる
+        // 変換後の横移動（YA由来のREL_X）は通す
         if (event->code == INPUT_REL_X && (is_right ? (data->dy_a != 0) : (data->dy_b != 0))) {
             data->dy_a = 0; data->dy_b = 0;
             return ZMK_INPUT_PROC_STOP;
@@ -133,9 +135,15 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
         return ZMK_INPUT_PROC_CONTINUE;
     }
 
-    return ZMK_INPUT_PROC_CONTINUE;
-}
+    // 3. モード未確定時（重要：ここを修正）
+    // 物理的な「ひねり軸」のイベントのみ、相方を待つためにSTOPする
+    if (event->code == INPUT_REL_X && (is_right ? (data->dy_a != 0) : (data->dy_b != 0))) {
+        // 勢いが溜まるまでは出さないが、YA由来の横移動は止めない
+        return ZMK_INPUT_PROC_STOP;
+    }
 
+    // それ以外（変換後の横移動、縦移動）は常に通す
+    return ZMK_INPUT_PROC_CONTINUE;
 static const struct zmk_input_processor_driver_api twist_sync_driver_api = {
     .handle_event = twist_sync_handle_event,
 };
