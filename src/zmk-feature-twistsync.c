@@ -144,6 +144,8 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
 
     // それ以外（変換後の横移動、縦移動）は常に通す
     return ZMK_INPUT_PROC_CONTINUE;
+}
+
 static const struct zmk_input_processor_driver_api twist_sync_driver_api = {
     .handle_event = twist_sync_handle_event,
 };
