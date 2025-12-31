@@ -8,4 +8,4 @@ target_sources_ifdef(CONFIG_ZMK_FEATURE_TWISTSYNC app PRIVATE src/zmk-feature-tw
 #zephyr_library_include_directories(${PYTHON_EXECUTABLE} ${WEST_TOPDIR}/zmk/app/include)
 
 # ソースファイルの追加
-#zephyr_library_sources(src/zmk-feature-twistsync.c)
+#zephyr_library_sources(src/zmk-feature-twistsync1.c)
