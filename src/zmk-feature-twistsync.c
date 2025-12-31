@@ -10,32 +10,31 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(zmk_input_processor_twist_sync, CONFIG_INPUT_LOG_LEVEL);
 
-/* 調整用定数 (固定小数点: 値を256倍して保持) */
-#define EMA_ALPHA_SHIFT 3     // 追従速度 (小さいほど敏感)
-#define CURSOR_THRESHOLD 1024 // 8.0 * 256
-#define SCROLL_THRESHOLD 1024 // 4.0 * 256 (発動しやすくするため下方修正)
+/* 調整用定数 (固定小数点: 256倍) */
+#define EMA_ALPHA_SHIFT 3
+#define CURSOR_THRESHOLD 512  // 2.0 * 256 (カーソル移動を検知しやすく下方修正)
+#define SCROLL_THRESHOLD 1024 // 4.0 * 256
 #define EXIT_THRESHOLD   256  // 1.0 * 256
-#define SYNC_WINDOW_MS   50   // 現実的な同期窓
+#define SYNC_WINDOW_MS   50
 
 struct twist_sync_config {
-    const struct device *sensor_right;
-    const struct device *sensor_bottom;
+    const struct device *sensor_right; // センサーA
+    const struct device *sensor_bottom; // センサーB
 };
 
 struct twist_sync_data {
-    int16_t dy_a;
-    int16_t dy_b;
+    int16_t dy_a; // 物理X (ひねり) バッファ
+    int16_t dy_b; // 物理X (ひねり) バッファ
     uint32_t last_time_a;
     uint32_t last_time_b;
     
     bool scroll_mode;
     bool not_scroll_mode;
 
-    int32_t avg_twist;  // 256倍スケール
-    int32_t avg_cursor; // 256倍スケール
+    int32_t avg_twist;
+    int32_t avg_cursor;
 };
 
-/* EMA更新: 精度向上のため256倍スケールで計算 */
 static void update_ema(int32_t *avg, int16_t new_val) {
     int32_t val_scaled = (int32_t)abs(new_val) << 8; 
     *avg = *avg + ((val_scaled - *avg) >> EMA_ALPHA_SHIFT);
@@ -43,18 +42,11 @@ static void update_ema(int32_t *avg, int16_t new_val) {
 
 static void process_synchronized_logic(struct twist_sync_data *data) {
     // ひねり成分の計算
-    int16_t combined_twist = 0;
-    
-    // 符号一致の確認
     if ((data->dy_a > 0 && data->dy_b > 0) || (data->dy_a < 0 && data->dy_b < 0)) {
-        combined_twist = (abs(data->dy_a) + abs(data->dy_b)) / 2;
-        update_ema(&data->avg_twist, combined_twist);
+        update_ema(&data->avg_twist, (abs(data->dy_a) + abs(data->dy_b)) / 2);
     } else if (data->dy_a == 0 || data->dy_b == 0) {
-        // 片方しか動いていない時は、その値を弱めに反映（起動を助ける）
-        combined_twist = (abs(data->dy_a) + abs(data->dy_b)) / 4;
-        update_ema(&data->avg_twist, combined_twist);
+        update_ema(&data->avg_twist, (abs(data->dy_a) + abs(data->dy_b)) / 4);
     } else {
-        // 明確な逆方向なら減衰
         data->avg_twist >>= 1;
     }
 
@@ -67,7 +59,6 @@ static void process_synchronized_logic(struct twist_sync_data *data) {
     if (!data->scroll_mode && data->avg_cursor > CURSOR_THRESHOLD) {
         data->not_scroll_mode = true;
     }
-    // スクロールモードへの移行（カーソルモードでないことが条件）
     if (!data->not_scroll_mode && data->avg_twist > SCROLL_THRESHOLD) {
         data->scroll_mode = true;
     }
@@ -85,65 +76,50 @@ static int twist_sync_handle_event(const struct device *dev, struct input_event 
     int16_t val = event->value;
     bool is_right = (event->dev == config->sensor_right);
 
-    if (event->code == INPUT_REL_X) {
-        if (is_right) {
-            data->dy_a = val;
-            data->last_time_a = now;
-        } else {
-            data->dy_b = val;
-            data->last_time_b = now;
-        }
+    // 物理的な軸に基づいたフラグ
+    bool is_physical_x = (event->code == INPUT_REL_X);
+    bool is_physical_y = (event->code == INPUT_REL_Y);
+
+    if (is_physical_x) {
+        // ひねり軸の処理
+        if (is_right) { data->dy_a = val; data->last_time_a = now; }
+        else { data->dy_b = val; data->last_time_b = now; }
         
-        // 同期判定
         process_synchronized_logic(data);
-        
-        // スクロール判定軸は一旦止めて同期を待つ
-        if (!data->scroll_mode && !data->not_scroll_mode) {
-             return ZMK_INPUT_PROC_STOP;
-        }
-    } else if (event->code == INPUT_REL_Y) {
+    } else if (is_physical_y) {
+        // 移動軸の処理
         update_ema(&data->avg_cursor, val);
-        
+        process_synchronized_logic(data); // カーソル移動中もモード判定を回す
+
         if (is_right) {
-            event->code = INPUT_REL_X;
+            event->code = INPUT_REL_X; // 横移動へ変換
             event->value = -val;
         } else {
-            event->value = -val;
+            event->value = -val; // 縦移動
         }
     }
 
     // --- 出力フェーズ ---
+
     // 1. スクロールモード確定時
     if (data->scroll_mode) {
-        if (event->code == INPUT_REL_X && (is_right ? (data->dy_a != 0) : (data->dy_b != 0))) {
+        if (is_physical_x) {
             event->code = INPUT_REL_WHEEL;
             event->value = -(val / (int16_t)(param2 > 0 ? param2 : 1));
-            data->dy_a = 0; data->dy_b = 0;
             return ZMK_INPUT_PROC_CONTINUE;
         }
-        return ZMK_INPUT_PROC_STOP; 
+        return ZMK_INPUT_PROC_STOP; // スクロール中はカーソル移動軸を殺す
     }
 
-    // 2. カーソル移動モード確定時
+    // 2. カーソルモード確定時
     if (data->not_scroll_mode) {
-        // 物理的なひねり軸(REL_X)由来のイベントだけを捨てる
-        // 変換後の横移動（YA由来のREL_X）は通す
-        if (event->code == INPUT_REL_X && (is_right ? (data->dy_a != 0) : (data->dy_b != 0))) {
-            data->dy_a = 0; data->dy_b = 0;
-            return ZMK_INPUT_PROC_STOP;
-        }
-        return ZMK_INPUT_PROC_CONTINUE;
+        if (is_physical_x) return ZMK_INPUT_PROC_STOP; // ひねり軸を殺す
+        return ZMK_INPUT_PROC_CONTINUE; // 座標変換済みの移動軸を通す
     }
 
-    // 3. モード未確定時（重要：ここを修正）
-    // 物理的な「ひねり軸」のイベントのみ、相方を待つためにSTOPする
-    if (event->code == INPUT_REL_X && (is_right ? (data->dy_a != 0) : (data->dy_b != 0))) {
-        // 勢いが溜まるまでは出さないが、YA由来の横移動は止めない
-        return ZMK_INPUT_PROC_STOP;
-    }
-
-    // それ以外（変換後の横移動、縦移動）は常に通す
-    return ZMK_INPUT_PROC_CONTINUE;
+    // 3. モード未確定時
+    if (is_physical_x) return ZMK_INPUT_PROC_STOP; // ひねり軸は相方を待つために止める
+    return ZMK_INPUT_PROC_CONTINUE; // 移動軸（変換後のX含む）は常に通す
 }
 
 static const struct zmk_input_processor_driver_api twist_sync_driver_api = {
