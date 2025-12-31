@@ -1,4 +1,4 @@
-target_sources_ifdef(CONFIG_ZMK_FEATURE_TWISTSYNC app PRIVATE src/zmk-feature-twistsync.c)
+target_sources_ifdef(CONFIG_ZMK_FEATURE_TWISTSYNC app PRIVATE src/zmk-feature-twistsync1.c)
 
 # モジュールをライブラリとして宣言
 ##zephyr_library()
